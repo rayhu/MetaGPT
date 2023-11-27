@@ -49,10 +49,10 @@ async def startup(
 
 def main(
     idea: str,
-    investment: float = 3.0,
+    investment: float = 5.0,
     n_round: int = 5,
     code_review: bool = True,
-    run_tests: bool = False,
+    run_tests: bool = True,
     implement: bool = True,
 ):
     """

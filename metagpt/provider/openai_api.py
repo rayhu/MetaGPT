@@ -15,7 +15,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_fixed,
+    wait_exponential,
 )
 
 from metagpt.config import CONFIG
@@ -39,7 +39,7 @@ class RateLimiter:
         self.last_call_time = 0
         # Here 1.1 is used because even if the calls are made strictly according to time,
         # they will still be QOS'd; consider switching to simple error retry later
-        self.interval = 1.1 * 60 / rpm
+        self.interval = 1.1 * 60 * 30 / rpm
         self.rpm = rpm
 
     def split_batches(self, batch):
@@ -229,8 +229,8 @@ class OpenAIGPTAPI(BaseGPTAPI, RateLimiter):
         return await self._achat_completion(messages)
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(1),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(10, 60, 3),
         after=after_log(logger, logger.level("WARNING").name),
         retry=retry_if_exception_type(APIConnectionError),
         retry_error_callback=log_and_reraise,
@@ -314,7 +314,18 @@ class OpenAIGPTAPI(BaseGPTAPI, RateLimiter):
         >>> rsp = await llm.aask_code(msg)   # -> {'language': 'python', 'code': "print('Hello, World!')"}
         """
         messages = self._process_message(messages)
-        rsp = await self._achat_completion_function(messages, **kwargs)
+        rsp = None
+        n=3
+        while rsp is None and n < 120:
+            try:
+                rsp = await self._achat_completion_function(messages, **kwargs)
+            except Exception as e:
+                logger.error(e)
+                logger.warning(f"retry after {n} seconds")
+                time.sleep(n)
+                logger.warning(f"retrying")
+                n = n * 2
+
         return self.get_choice_function_arguments(rsp)
 
     def _calc_usage(self, messages: list[dict], rsp: str) -> dict:
